@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-result {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔌 Frontend-Backend Connection Test</h1>
+    
+    <div>
+        <p><strong>Frontend URL:</strong> http://localhost:8080</p>
+        <p><strong>Backend URL:</strong> http://localhost:5000</p>
+        <p><strong>API Base URL:</strong> http://localhost:5000/api</p>
+    </div>
+
+    <button onclick="testConnection()">Test Connection</button>
+    
+    <div id="results"></div>
+
+    <script>
+        async function testConnection() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p>Testing connection...</p>';
+            
+            try {
+                // Test 1: Health check
+                const healthResponse = await fetch('http://localhost:5000/health');
+                const healthData = await healthResponse.json();
+                
+                resultsDiv.innerHTML += `
+                    <div class="test-result success">
+                        <h3>✅ Health Check Passed</h3>
+                        <pre>${JSON.stringify(healthData, null, 2)}</pre>
+                    </div>
+                `;
+
+                // Test 2: CORS test with credentials
+                const corsResponse = await fetch('http://localhost:5000/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        email: 'test@test.com',
+                        password: 'test'
+                    })
+                });
+
+                if (corsResponse.ok || corsResponse.status === 401 || corsResponse.status === 400) {
+                    resultsDiv.innerHTML += `
+                        <div class="test-result success">
+                            <h3>✅ CORS Configuration Working</h3>
+                            <p>Status: ${corsResponse.status}</p>
+                            <p>The backend is accepting requests from the frontend!</p>
+                        </div>
+                    `;
+                } else {
+                    throw new Error(`Unexpected status: ${corsResponse.status}`);
+                }
+
+            } catch (error) {
+                resultsDiv.innerHTML += `
+                    <div class="test-result error">
+                        <h3>❌ Connection Failed</h3>
+                        <p>${error.message}</p>
+                        <pre>${error.stack}</pre>
+                    </div>
+                `;
+            }
+        }
+
+        // Auto-run test on page load
+        window.onload = () => {
+            setTimeout(testConnection, 500);
+        };
+    </script>
+</body>
+</html>

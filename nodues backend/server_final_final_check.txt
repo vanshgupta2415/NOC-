@@ -1,0 +1,75 @@
+﻿[dotenv@17.2.4] injecting env (27) from .env -- tip: ΓÜÖ∩╕Å  load multiple .env files with { path: ['.env.local', '.env'] }
+node : (node:4388) 
+[MONGOOSE] Warning: 
+Duplicate schema index on 
+{"email":1} found. This is 
+often due to declaring an 
+index using both "index: 
+true" and "schema.index()". 
+Please remove the duplicate 
+index definition.
+At line:1 char:1
++ node server.js 2>&1 | 
+Out-File -FilePath server_fi
+nal_final_check.txt ...
++ ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          
+    : NotSpecified: ((node  
+  :4388) [MO...dex defini   
+ tion.:String) [], Remot    
+eException
+    + FullyQualifiedErrorId 
+    : NativeCommandError
+ 
+(Use `node --trace-warnings 
+...` to show where the 
+warning was created)
+(node:4388) [MONGOOSE] 
+Warning: Duplicate schema 
+index on {"userId":1} 
+found. This is often due to 
+declaring an index using 
+both "index: true" and 
+"schema.index()". Please 
+remove the duplicate index 
+definition.
+(node:4388) [MONGOOSE] 
+Warning: Duplicate schema 
+index on 
+{"enrollmentNumber":1} 
+found. This is often due to 
+declaring an index using 
+both "index: true" and 
+"schema.index()". Please 
+remove the duplicate index 
+definition.
+(node:4388) [MONGOOSE] 
+Warning: Duplicate schema 
+index on 
+{"applicationId":1} found. 
+This is often due to 
+declaring an index using 
+both "index: true" and 
+"schema.index()". Please 
+remove the duplicate index 
+definition.
+(node:4388) [MONGOOSE] 
+Warning: Duplicate schema 
+index on 
+{"applicationId":1} found. 
+This is often due to 
+declaring an index using 
+both "index: true" and 
+"schema.index()". Please 
+remove the duplicate index 
+definition.
+(node:4388) [MONGOOSE] 
+Warning: Duplicate schema 
+index on 
+{"certificateNumber":1} 
+found. This is often due to 
+declaring an index using 
+both "index: true" and 
+"schema.index()". Please 
+remove the duplicate index 
+definition.
