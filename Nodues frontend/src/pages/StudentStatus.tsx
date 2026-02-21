@@ -11,6 +11,7 @@ import {
   Calendar, FileText, AlertTriangle
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { studentAPI, ApplicationStatus, ApiResponse } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -44,6 +45,7 @@ const formatBackendDate = (dateString?: string) => {
 
 const StudentStatus = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['applicationStatus'],
@@ -101,7 +103,7 @@ const StudentStatus = () => {
             <CardContent className="p-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
                 <div>
-                  <h3 className="font-bold text-foreground">Application #{application._id.substring(application._id.length - 8).toUpperCase()}</h3>
+                  <h3 className="font-bold text-foreground">Application #{application.id.substring(application.id.length - 8).toUpperCase()}</h3>
                   <p className="text-sm text-muted-foreground">Submitted on {formatBackendDate(application.createdAt)}</p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -121,12 +123,22 @@ const StudentStatus = () => {
               <p className="text-xs text-muted-foreground mt-2">{approvedCount} of {approvalStages.length} departments cleared</p>
 
               {application.status === 'Paused' && (
-                <div className="mt-4 p-3 bg-destructive/5 border border-destructive/20 rounded-xl flex items-start gap-3">
-                  <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-semibold text-destructive">Remarks for Attention</p>
-                    <p className="text-xs text-destructive/80"> Please check your email for detailed remarks from the department. Some documents may need resubmission.</p>
+                <div className="mt-4 p-4 bg-destructive/5 border border-destructive/20 rounded-xl flex flex-col gap-3">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-semibold text-destructive">Action Required: Application Paused</p>
+                      <p className="text-xs text-destructive/80">One or more departments have requested changes. Review the remarks below and update your application.</p>
+                    </div>
                   </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="w-full sm:w-auto self-end rounded-lg shadow-sm"
+                    onClick={() => navigate('/student/apply')}
+                  >
+                    Update & Resubmit
+                  </Button>
                 </div>
               )}
             </CardContent>

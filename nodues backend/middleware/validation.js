@@ -13,8 +13,9 @@ const validate = (schema) => {
             next();
         } catch (error) {
             if (error instanceof z.ZodError) {
-                const errors = error.errors.map(err => ({
-                    field: err.path.join('.'),
+                const issuesList = error.issues || error.errors || [];
+                const errors = issuesList.map(err => ({
+                    field: (err.path || []).join('.'),
                     message: err.message
                 }));
 
@@ -46,16 +47,16 @@ const schemas = {
                 'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character'
             ),
             role: z.enum([
-                'student',
-                'faculty',
-                'class_coordinator',
-                'hod',
-                'hostel_admin',
-                'library_admin',
-                'workshop_admin',
-                'tp_admin',
-                'general_office_admin',
-                'accounts_office'
+                'Student',
+                'Faculty',
+                'ClassCoordinator',
+                'HOD',
+                'HostelAdmin',
+                'LibraryAdmin',
+                'WorkshopAdmin',
+                'TPAdmin',
+                'GeneralOffice',
+                'AccountsOfficer'
             ]),
             department: z.string().optional()
         })
@@ -102,14 +103,25 @@ const schemas = {
         })
     }),
 
-    // Approval action
+    // Approval action (approve endpoint)
     approvalAction: z.object({
         body: z.object({
-            action: z.enum(['approve', 'pause']),
-            remarks: z.string().max(500).optional()
+            libraryDues: z.string().optional(),
+            tcNumber: z.string().optional(),
+            tcDate: z.string().optional()
+        }).passthrough(),
+        params: z.object({
+            applicationId: z.string().min(1, 'Application ID is required')
+        })
+    }),
+
+    // Pause action
+    pauseAction: z.object({
+        body: z.object({
+            remarks: z.string().min(1, 'Remarks are required').max(500)
         }),
         params: z.object({
-            applicationId: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid application ID')
+            applicationId: z.string().min(1, 'Application ID is required')
         })
     }),
 
@@ -120,17 +132,17 @@ const schemas = {
             email: z.string().email(),
             password: z.string().min(8),
             role: z.enum([
-                'student',
-                'faculty',
-                'class_coordinator',
-                'hod',
-                'hostel_admin',
-                'library_admin',
-                'workshop_admin',
-                'tp_admin',
-                'general_office_admin',
-                'accounts_office',
-                'super_admin'
+                'Student',
+                'Faculty',
+                'ClassCoordinator',
+                'HOD',
+                'HostelAdmin',
+                'LibraryAdmin',
+                'WorkshopAdmin',
+                'TPAdmin',
+                'GeneralOffice',
+                'AccountsOfficer',
+                'SuperAdmin'
             ]),
             department: z.string().optional()
         })
@@ -154,10 +166,10 @@ const schemas = {
         })
     }),
 
-    // MongoDB ObjectId param
-    mongoId: z.object({
+    // UUID param
+    mongoId: z.object({ // Renamed conceptually but kept name for compatibility if used elsewhere
         params: z.object({
-            id: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid ID format')
+            id: z.string().uuid('Invalid ID format (UUID expected)')
         })
     })
 };
@@ -170,7 +182,7 @@ const validateStudentProfile = validate(schemas.studentProfile);
 const validateApplication = validate(schemas.noDuesApplication);
 const validateResubmit = validate(schemas.noDuesApplication);
 const validateApproval = validate(schemas.approvalAction);
-const validatePause = validate(schemas.approvalAction);
+const validatePause = validate(schemas.pauseAction);
 const validateCreateUser = validate(schemas.createUser);
 const validateWorkflowConfig = validate(schemas.workflowConfig);
 const validateMongoId = validate(schemas.mongoId);

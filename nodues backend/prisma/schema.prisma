@@ -1,0 +1,279 @@
+// ============================================================
+// Prisma Schema — No Dues Portal (MITS Gwalior)
+// Database: PostgreSQL
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum Role {
+  Student
+  Faculty
+  ClassCoordinator
+  HOD
+  HostelWarden
+  LibraryAdmin
+  WorkshopAdmin
+  TPOfficer
+  GeneralOffice
+  AccountsOfficer
+  SuperAdmin
+}
+
+enum ApplicationStatus {
+  Submitted
+  UnderReview
+  Paused
+  Approved
+  CertificateIssued
+  Rejected
+}
+
+enum ApprovalStatus {
+  Pending
+  Approved
+  Paused
+  Skipped
+}
+
+// ============================================================
+// MODELS
+// ============================================================
+
+model User {
+  id           String  @id @default(uuid())
+  name         String
+  email        String  @unique
+  passwordHash String
+  role         Role
+  // Department stored as plain string to match frontend values
+  // e.g. "Computer Science", "Electronics", etc.
+  department   String?
+  isActive     Boolean @default(true)
+  refreshToken String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  studentProfile          StudentProfile?
+  applications            NoDuesApplication[]
+  approvedStages          ApprovalStage[]     @relation("ApprovedBy")
+  auditLogs               AuditLog[]
+  certificates            Certificate[]       @relation("StudentCertificates")
+  regeneratedCertificates Certificate[]       @relation("RegeneratedBy")
+  pausedApplications      NoDuesApplication[] @relation("PausedBy")
+
+  @@index([role])
+  @@index([email])
+  @@index([isActive])
+}
+
+model StudentProfile {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  enrollmentNumber String   @unique
+  fatherName       String
+  dateOfBirth      DateTime
+  // Branch stored as plain string: "Computer Science", "Electronics", etc.
+  branch           String
+  address          String
+  passOutYear      Int
+  phoneNumber      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications NoDuesApplication[]
+}
+
+model NoDuesApplication {
+  id               String @id @default(uuid())
+  studentId        String
+  studentProfileId String
+
+  status       ApplicationStatus @default(Submitted)
+  currentStage String            @default("Faculty")
+
+  // Student declarations
+  hostelInvolved         Boolean @default(false)
+  cautionMoneyRefund     Boolean @default(false)
+  exitSurveyCompleted    Boolean @default(false)
+  feeDuesCleared         Boolean @default(false)
+  projectReportSubmitted Boolean @default(false)
+  declarationAccepted    Boolean @default(false)
+
+  // Status timestamps
+  pausedAt   DateTime?
+  approvedAt DateTime?
+  rejectedAt DateTime?
+
+  // Paused by (who put it on hold)
+  pausedById String?
+  pausedBy   User?   @relation("PausedBy", fields: [pausedById], references: [id])
+
+  // Authority-specific fields (MITS Gwalior requirements)
+  libraryDues String?   @default("Nil")
+  tcNumber    String?
+  tcDate      DateTime?
+
+  // General remarks
+  remarks String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  student        User           @relation(fields: [studentId], references: [id])
+  studentProfile StudentProfile @relation(fields: [studentProfileId], references: [id])
+  approvalStages ApprovalStage[]
+  certificate    Certificate?
+  documents      Documents?
+
+  // Indexes for common queries
+  @@index([studentId])
+  @@index([status])
+  @@index([currentStage])
+  @@index([createdAt])
+  @@index([status, currentStage])
+}
+
+model ApprovalStage {
+  id            String         @id @default(uuid())
+  applicationId String
+  officeName    String
+  role          Role
+  status        ApprovalStatus @default(Pending)
+  stageOrder    Int
+  remarks       String?
+
+  // Approver info (denormalised for audit trail even if user is deleted)
+  approvedById    String?
+  approvedByName  String?
+  approvedByEmail String?
+  approvedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  application NoDuesApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  approvedBy  User?             @relation("ApprovedBy", fields: [approvedById], references: [id])
+
+  @@index([status])
+  @@index([role])
+  @@index([applicationId, role])
+  @@index([applicationId, status])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String
+  userName   String
+  userEmail  String
+  userRole   String
+  action     String
+  targetType String?
+  targetId   String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  timestamp  DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+  @@index([targetType, targetId])
+}
+
+model Certificate {
+  id                String   @id @default(uuid())
+  applicationId     String   @unique
+  certificateNumber String   @unique
+  studentId         String
+  studentName       String
+  enrollmentNumber  String
+  branch            String
+  passOutYear       Int
+  issuedAt          DateTime @default(now())
+  pdfPath           String
+  emailSent         Boolean  @default(false)
+  emailSentAt       DateTime?
+  emailError        String?
+  regenerationCount Int      @default(0)
+  lastRegeneratedAt DateTime?
+  regeneratedById   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  application   NoDuesApplication @relation(fields: [applicationId], references: [id])
+  student       User               @relation("StudentCertificates", fields: [studentId], references: [id])
+  regeneratedBy User?              @relation("RegeneratedBy", fields: [regeneratedById], references: [id])
+
+  @@index([studentId])
+  @@index([issuedAt])
+  @@index([certificateNumber])
+}
+
+model Documents {
+  id            String @id @default(uuid())
+  applicationId String @unique
+
+  // Fee receipts PDF
+  feeReceiptsPDF_filename   String?
+  feeReceiptsPDF_path       String?
+  feeReceiptsPDF_size       Int?
+  feeReceiptsPDF_uploadedAt DateTime?
+
+  // Marksheets PDF
+  marksheetsPDF_filename    String?
+  marksheetsPDF_path        String?
+  marksheetsPDF_size        Int?
+  marksheetsPDF_uploadedAt  DateTime?
+
+  // Bank proof image
+  bankProofImage_filename   String?
+  bankProofImage_path       String?
+  bankProofImage_size       Int?
+  bankProofImage_uploadedAt DateTime?
+
+  // ID proof image
+  idProofImage_filename     String?
+  idProofImage_path         String?
+  idProofImage_size         Int?
+  idProofImage_uploadedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  application NoDuesApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+}
+
+// Model to pre-store institutional student data for automatic profile creation
+model StudentRegistry {
+  id               String  @id @default(uuid())
+  email            String  @unique
+  enrollmentNumber String  @unique
+  name             String
+  branch           String?
+  
+  createdAt DateTime @default(now())
+}

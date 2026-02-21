@@ -81,6 +81,7 @@ export interface User {
   email: string;
   role: 'Student' | 'Faculty' | 'ClassCoordinator' | 'HOD' | 'HostelWarden' | 'LibraryAdmin' | 'WorkshopAdmin' | 'TPOfficer' | 'GeneralOffice' | 'AccountsOfficer' | 'SuperAdmin';
   department?: string;
+  hasProfile?: boolean;
   studentProfile?: StudentProfile;
 }
 
@@ -95,14 +96,24 @@ export interface StudentProfile {
 }
 
 export interface Application {
-  _id: string;
+  id: string;
   studentId: string;
-  status: 'UnderReview' | 'Paused' | 'CertificateIssued';
-  currentStage: number;
+  studentProfileId: string;
+  status: 'Submitted' | 'UnderReview' | 'Paused' | 'Approved' | 'CertificateIssued' | 'Rejected';
+  currentStage: string;
   hostelInvolved: boolean;
   cautionMoneyRefund: boolean;
+  exitSurveyCompleted: boolean;
+  feeDuesCleared: boolean;
+  projectReportSubmitted: boolean;
+  declarationAccepted: boolean;
+  libraryDues?: string;
+  tcNumber?: string;
+  tcDate?: string;
+  remarks?: string;
   createdAt: string;
   updatedAt: string;
+  studentProfile: StudentProfile;
 }
 
 export interface ApprovalStage {
@@ -141,6 +152,7 @@ export const authAPI = {
       accessToken: string;
       refreshToken: string;
       user: User;
+      studentProfile?: StudentProfile;
     }>>('/auth/login', { email, password });
     return response.data;
   },
@@ -160,7 +172,7 @@ export const authAPI = {
     return response.data;
   },
 
-  getCurrentUser: async () => {
+  getMe: async () => {
     const response = await api.get<ApiResponse<{
       user: User;
       studentProfile: StudentProfile | null;
@@ -178,6 +190,19 @@ export const studentAPI = {
 
   updateProfile: async (profileData: Partial<StudentProfile>) => {
     const response = await api.post<ApiResponse<{ profile: StudentProfile }>>('/student/profile', profileData);
+    return response.data;
+  },
+
+  completeProfile: async (data: {
+    enrollmentNumber: string;
+    institutionalEmail?: string;
+    fatherName: string;
+    dateOfBirth: string;
+    branch: string;
+    address: string;
+    passOutYear: number;
+  }) => {
+    const response = await api.post<ApiResponse<{ profile: StudentProfile; name?: string }>>('/student/complete-profile', data);
     return response.data;
   },
 
@@ -318,6 +343,11 @@ export const adminAPI = {
     return response.data;
   },
 
+  updateUser: async (userId: string, userData: any) => {
+    const response = await api.put<ApiResponse<{ user: User }>>(`/admin/users/${userId}`, userData);
+    return response.data;
+  },
+
   getAllApplications: async (params?: {
     page?: number;
     limit?: number;
@@ -354,6 +384,16 @@ export const adminAPI = {
       logs: any[];
       pagination: any;
     }>>('/admin/audit-logs', { params });
+    return response.data;
+  },
+
+  getStudentRegistry: async () => {
+    const response = await api.get<ApiResponse<{ students: any[] }>>('/admin/student-registry');
+    return response.data;
+  },
+
+  bulkUploadStudents: async (students: any[]) => {
+    const response = await api.post<ApiResponse<{ count: number }>>('/admin/student-registry/bulk', { students });
     return response.data;
   },
 };

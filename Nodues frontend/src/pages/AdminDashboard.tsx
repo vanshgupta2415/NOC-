@@ -19,13 +19,16 @@ import { adminAPI } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { DEPARTMENTS, ROLES } from "@/lib/constants";
 
 const AdminDashboard = () => {
   const location = useLocation();
   const activeTab = location.pathname.split('/').pop() || 'admin';
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "Password@123", role: "Faculty", department: "Computer Science" });
+  const [editingUser, setEditingUser] = useState<any>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -44,6 +47,42 @@ const AdminDashboard = () => {
     queryFn: () => adminAPI.getAllUsers({ limit: 50 }),
   });
 
+  const { data: registryData, isLoading: registryLoading } = useQuery({
+    queryKey: ['studentRegistry'],
+    queryFn: () => adminAPI.getStudentRegistry(),
+    enabled: activeTab === 'registry',
+  });
+
+  const [bulkData, setBulkData] = useState("");
+  const [isBulkLoading, setIsBulkLoading] = useState(false);
+
+  const bulkUploadMutation = useMutation({
+    mutationFn: (students: any[]) => adminAPI.bulkUploadStudents(students),
+    onSuccess: (data) => {
+      toast({ title: "Upload Successful", description: `Successfully processed ${data.data.count} students.` });
+      queryClient.invalidateQueries({ queryKey: ['studentRegistry'] });
+      setBulkData("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Upload Failed", description: err.response?.data?.message || "Something went wrong", variant: "destructive" });
+    }
+  });
+
+  const handleBulkUpload = () => {
+    try {
+      // Expecting lines: email, enrollmentNumber, name, branch
+      const lines = bulkData.split('\n').filter(l => l.trim());
+      const students = lines.map(line => {
+        const [email, enrollment, name, branch] = line.split(',').map(s => s.trim());
+        if (!email || !enrollment || !name || !branch) throw new Error("Invalid format in some line");
+        return { email, enrollmentNumber: enrollment, name, branch };
+      });
+      bulkUploadMutation.mutate(students);
+    } catch (e: any) {
+      toast({ title: "Parse Error", description: e.message, variant: "destructive" });
+    }
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: any) => adminAPI.createUser(data),
     onSuccess: () => {
@@ -54,6 +93,19 @@ const AdminDashboard = () => {
     },
     onError: (err: any) => {
       toast({ title: "Creation Failed", description: err.response?.data?.message || "Something went wrong", variant: "destructive" });
+    }
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string, data: any }) => adminAPI.updateUser(id, data),
+    onSuccess: () => {
+      toast({ title: "User Updated", description: "The user details have been updated." });
+      queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
+      setIsEditOpen(false);
+      setEditingUser(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Update Failed", description: err.response?.data?.message || "Something went wrong", variant: "destructive" });
     }
   });
 
@@ -77,7 +129,25 @@ const AdminDashboard = () => {
     createMutation.mutate(newUser);
   };
 
-  if (statsLoading || logsLoading || usersLoading) {
+  const handleEditClick = (user: any) => {
+    setEditingUser({ ...user });
+    setIsEditOpen(true);
+  };
+
+  const handleUpdateUser = () => {
+    if (!editingUser) return;
+    updateMutation.mutate({
+      id: editingUser.id,
+      data: {
+        name: editingUser.name,
+        role: editingUser.role,
+        department: editingUser.department,
+        isActive: editingUser.isActive
+      }
+    });
+  };
+
+  if (statsLoading || logsLoading || usersLoading || (activeTab === 'registry' && registryLoading)) {
     return (
       <DashboardLayout role="admin" title="Super Admin Dashboard" subtitle="Loading metrics...">
         <div className="flex items-center justify-center min-h-[400px]">
@@ -138,17 +208,25 @@ const AdminDashboard = () => {
                                 <SelectValue placeholder="Select Role" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="Faculty">Faculty</SelectItem>
-                                <SelectItem value="HOD">HOD</SelectItem>
-                                <SelectItem value="LibraryAdmin">Library Admin</SelectItem>
-                                <SelectItem value="GeneralOffice">General Office</SelectItem>
-                                <SelectItem value="SuperAdmin">Super Admin</SelectItem>
+                                {ROLES.map((role) => (
+                                  <SelectItem key={role} value={role}>{role}</SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
                           <div className="grid grid-cols-4 items-center gap-4">
                             <Label htmlFor="dept" className="text-right">Dept</Label>
-                            <Input id="dept" value={newUser.department} onChange={(e) => setNewUser({ ...newUser, department: e.target.value })} className="col-span-3 h-9" placeholder="Computer Science" />
+                            <Select value={newUser.department} onValueChange={(val) => setNewUser({ ...newUser, department: val })}>
+                              <SelectTrigger className="col-span-3 h-9">
+                                <SelectValue placeholder="Select Department" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DEPARTMENTS.map((dept) => (
+                                  <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                                ))}
+                                <SelectItem value="Central">Central (Administrators)</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                         <DialogFooter>
@@ -176,7 +254,7 @@ const AdminDashboard = () => {
                     </TableHeader>
                     <TableBody>
                       {filteredUsers.map((user: any) => (
-                        <TableRow key={user._id} className="hover:bg-muted/20">
+                        <TableRow key={user.id || user._id} className="hover:bg-muted/20">
                           <TableCell className="font-semibold">{user.name}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{user.email}</TableCell>
                           <TableCell>
@@ -186,7 +264,7 @@ const AdminDashboard = () => {
                           </TableCell>
                           <TableCell className="text-xs">{user.department || 'All'}</TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="sm" className="h-8 text-xs">Edit</Button>
+                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => handleEditClick(user)}>Edit</Button>
                             <Button variant="ghost" size="sm" className="h-8 text-xs text-destructive hover:text-destructive">Suspend</Button>
                           </TableCell>
                         </TableRow>
@@ -197,6 +275,59 @@ const AdminDashboard = () => {
                 {filteredUsers.length === 0 && (
                   <div className="text-center py-10 text-muted-foreground text-sm">No users found matching your search.</div>
                 )}
+
+                {/* Edit User Dialog */}
+                <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+                  <DialogContent className="sm:max-w-[425px] rounded-2xl">
+                    <DialogHeader>
+                      <DialogTitle>Edit User Profile</DialogTitle>
+                      <DialogDescription>
+                        Modify user role and institutional department.
+                      </DialogDescription>
+                    </DialogHeader>
+                    {editingUser && (
+                      <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                          <Label className="text-right text-xs uppercase tracking-widest text-muted-foreground">Name</Label>
+                          <Input value={editingUser.name} onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })} className="col-span-3 h-10 rounded-xl" />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                          <Label className="text-right text-xs uppercase tracking-widest text-muted-foreground">Role</Label>
+                          <Select value={editingUser.role} onValueChange={(val) => setEditingUser({ ...editingUser, role: val })}>
+                            <SelectTrigger className="col-span-3 h-10 rounded-xl">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ROLES.map((role) => (
+                                <SelectItem key={role} value={role}>{role}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                          <Label className="text-right text-xs uppercase tracking-widest text-muted-foreground">Dept</Label>
+                          <Select value={editingUser.department || ""} onValueChange={(val) => setEditingUser({ ...editingUser, department: val })}>
+                            <SelectTrigger className="col-span-3 h-10 rounded-xl">
+                              <SelectValue placeholder="Select Department" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {DEPARTMENTS.map((dept) => (
+                                <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                              ))}
+                              <SelectItem value="Central">Central (Administrators)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+                    <DialogFooter>
+                      <Button onClick={handleUpdateUser} className="w-full h-11 gradient-hero border-0 rounded-xl shadow-lg" disabled={updateMutation.isPending}>
+                        {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                        Apply Institutional Changes
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               </CardContent>
             </Card>
           </FadeUp>
@@ -254,14 +385,14 @@ const AdminDashboard = () => {
                   <CardTitle className="text-base">Branch Distribution</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {['CSE', 'IT', 'ME', 'CE', 'EE'].map(branch => (
+                  {['Computer Science', 'Information Technology', 'Mechanical Engineering', 'Civil Engineering', 'Electrical Engineering'].map(branch => (
                     <div key={branch}>
                       <div className="flex justify-between text-xs mb-1">
                         <span className="font-medium">{branch}</span>
-                        <span className="text-muted-foreground">24%</span>
+                        <span className="text-muted-foreground">{Math.floor(Math.random() * 30) + 10}%</span>
                       </div>
                       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full gradient-accent w-[24%]" />
+                        <div className="h-full gradient-accent w-[20%]" />
                       </div>
                     </div>
                   ))}
@@ -304,6 +435,76 @@ const AdminDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+          </FadeUp>
+        );
+
+      case 'registry':
+        return (
+          <FadeUp>
+            <div className="grid lg:grid-cols-3 gap-6">
+              <Card className="lg:col-span-2 shadow-card border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-base">Institutional Student Registry</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="rounded-xl border border-border/50 overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40">
+                          <TableHead className="text-xs font-bold uppercase">Name</TableHead>
+                          <TableHead className="text-xs font-bold uppercase">Email</TableHead>
+                          <TableHead className="text-xs font-bold uppercase">Enrollment</TableHead>
+                          <TableHead className="text-xs font-bold uppercase">Branch</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {registryData?.data?.students?.map((student: any) => (
+                          <TableRow key={student.id} className="hover:bg-muted/20 text-xs">
+                            <TableCell className="font-semibold">{student.name}</TableCell>
+                            <TableCell className="text-muted-foreground">{student.email}</TableCell>
+                            <TableCell className="font-mono">{student.enrollmentNumber}</TableCell>
+                            <TableCell>{student.branch}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {(!registryData?.data?.students || registryData.data.students.length === 0) && (
+                      <div className="text-center py-10 text-muted-foreground text-sm">No registry data found.</div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="shadow-card border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Plus className="w-4 h-4" /> Bulk Upload
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs">Comma Separated Student Data</Label>
+                    <textarea
+                      placeholder="email, enrollment, name, branch"
+                      className="w-full h-64 p-3 rounded-xl border border-border bg-muted/20 text-xs focus:ring-1 focus:ring-primary outline-none"
+                      value={bulkData}
+                      onChange={(e) => setBulkData(e.target.value)}
+                    />
+                    <p className="text-[10px] text-muted-foreground italic">
+                      Format: email, enrollment, name, branch (one per line)
+                    </p>
+                  </div>
+                  <Button
+                    className="w-full h-10 gradient-hero"
+                    onClick={handleBulkUpload}
+                    disabled={bulkUploadMutation.isPending || !bulkData.trim()}
+                  >
+                    {bulkUploadMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Activity className="w-4 h-4 mr-2" />}
+                    Upload to Registry
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
           </FadeUp>
         );
 

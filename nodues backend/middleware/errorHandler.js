@@ -1,4 +1,5 @@
 const logger = require('../config/logger');
+const { Prisma } = require('@prisma/client');
 
 // Global error handler
 const errorHandler = (err, req, res, next) => {
@@ -10,34 +11,30 @@ const errorHandler = (err, req, res, next) => {
         user: req.user?.email
     });
 
-    // Mongoose validation error
-    if (err.name === 'ValidationError') {
-        const errors = Object.values(err.errors).map(e => ({
-            field: e.path,
-            message: e.message
-        }));
-
-        return res.status(400).json({
-            success: false,
-            message: 'Validation failed',
-            errors
-        });
+    // Prisma error handling
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+        // P2002: Unique constraint failed
+        if (err.code === 'P2002') {
+            const field = err.meta?.target?.[0] || 'Field';
+            return res.status(400).json({
+                success: false,
+                message: `${field} already exists`
+            });
+        }
+        // P2025: Record to update/delete not found
+        if (err.code === 'P2025') {
+            return res.status(404).json({
+                success: false,
+                message: 'Record not found'
+            });
+        }
     }
 
-    // Mongoose duplicate key error
-    if (err.code === 11000) {
-        const field = Object.keys(err.keyPattern)[0];
+    if (err instanceof Prisma.PrismaClientValidationError) {
         return res.status(400).json({
             success: false,
-            message: `${field} already exists`
-        });
-    }
-
-    // Mongoose cast error (invalid ObjectId)
-    if (err.name === 'CastError') {
-        return res.status(400).json({
-            success: false,
-            message: 'Invalid ID format'
+            message: 'Database validation failed',
+            details: err.message
         });
     }
 

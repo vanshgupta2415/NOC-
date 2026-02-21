@@ -30,6 +30,18 @@ router.post(
 );
 
 /**
+ * @route   POST /api/student/complete-profile
+ * @desc    Link institutional identity and complete profile
+ * @access  Private (Student only)
+ */
+router.post(
+    '/complete-profile',
+    authenticate,
+    authorize('Student'),
+    studentController.linkAndCompleteProfile
+);
+
+/**
  * @route   POST /api/student/application
  * @desc    Submit new No Dues application
  * @access  Private (Student only)

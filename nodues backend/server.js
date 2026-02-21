@@ -4,9 +4,10 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+const passport = require('./config/passport'); // Google OAuth
 require('dotenv').config();
 
-const connectDB = require('./config/database');
+const { connectDB } = require('./config/database');
 const logger = require('./config/logger');
 const { errorHandler } = require('./middleware/errorHandler');
 
@@ -21,7 +22,7 @@ const app = express();
 // Security middleware
 app.use(helmet());
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:8080',
+    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
     credentials: true
 }));
 
@@ -37,6 +38,9 @@ app.use('/api/', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
+
+// Passport (Google OAuth — no sessions)
+app.use(passport.initialize());
 
 // Logging middleware
 if (process.env.NODE_ENV === 'development') {
