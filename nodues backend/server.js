@@ -10,7 +10,9 @@ require('dotenv').config();
 const { connectDB } = require('./config/database');
 const logger = require('./config/logger');
 const { errorHandler } = require('./middleware/errorHandler');
-
+app.get("/", (req, res) => {
+    res.send("Backend is running successfully 🚀");
+});
 // Import routes
 const authRoutes = require('./routes/authRoutes');
 const studentRoutes = require('./routes/studentRoutes');

@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
@@ -21,7 +22,7 @@ async function main() {
     console.log('🚀 Starting Prisma Seeding...');
 
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash('password123', salt);
+    const hashedPassword = await bcrypt.hash('Admin@123456', salt);
 
     // 1. Clear existing data
     console.log('🧹 Clearing existing data...');
@@ -92,7 +93,7 @@ async function main() {
 
     console.log('\n✨ Seeding Complete!');
     console.log('------------------------------------------');
-    console.log('Password for ALL accounts: password123');
+    console.log('Password for ALL accounts: Admin@123456');
     console.log('------------------------------------------\n');
 }
 

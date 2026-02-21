@@ -38,8 +38,12 @@ const Login = () => {
 
   const handleGoogleLogin = () => {
     setGoogleLoading(true);
-    // Redirect to backend Google OAuth endpoint
-    window.location.href = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/google`;
+    // Use the base URL from env, ensuring we don't accidentally double /api
+    const baseUrl = import.meta.env.VITE_API_BASE_URL
+      ? import.meta.env.VITE_API_BASE_URL.replace(/\/api$/, '')
+      : "http://localhost:5000";
+
+    window.location.href = `${baseUrl}/api/auth/google`;
   };
 
   return (

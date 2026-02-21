@@ -22,16 +22,15 @@ Use this checklist to ensure a smooth deployment to production.
 - [ ] Helmet middleware enabled
 - [ ] Rate limiting enabled
 - [ ] File upload validation working
-- [ ] SQL injection prevention (N/A - using MongoDB)
+- [ ] SQL injection prevention (Handled by Prisma)
 - [ ] XSS prevention implemented
 
 ### 3. Database Setup
-- [ ] MongoDB Atlas account created
-- [ ] Production database created
-- [ ] Database user created with strong password
-- [ ] IP whitelist configured (or 0.0.0.0/0 for cloud)
+- [ ] Production PostgreSQL database created (Neon, Supabase, or Render)
+- [ ] `DATABASE_URL` configured with production credentials
 - [ ] Connection string tested
-- [ ] Indexes created (see below)
+- [ ] Run `npx prisma migrate deploy` on production
+- [ ] Run `npx prisma generate` on production build
 - [ ] Backup strategy planned
 
 ### 4. Email Configuration
@@ -60,37 +59,19 @@ Use this checklist to ensure a smooth deployment to production.
 
 ---
 
-## Database Indexes (Run These!)
+## Prisma Commands (Run on Production)
 
-Connect to your MongoDB Atlas database and run:
+After connecting to your production database, ensure you run these commands:
 
-```javascript
-// Users collection
-db.users.createIndex({ email: 1 }, { unique: true });
-db.users.createIndex({ role: 1 });
-db.users.createIndex({ isActive: 1 });
+```bash
+# Generate Prisma Client
+npx prisma generate
 
-// Student Profiles
-db.studentprofiles.createIndex({ userId: 1 }, { unique: true });
-db.studentprofiles.createIndex({ enrollmentNumber: 1 }, { unique: true });
+# Apply migrations (idempotent, safe for production)
+npx prisma migrate deploy
 
-// Applications
-db.noduesapplications.createIndex({ studentId: 1 });
-db.noduesapplications.createIndex({ status: 1 });
-db.noduesapplications.createIndex({ createdAt: -1 });
-
-// Approval Stages
-db.approvalstages.createIndex({ applicationId: 1, stageOrder: 1 });
-db.approvalstages.createIndex({ role: 1, status: 1 });
-
-// Certificates
-db.certificates.createIndex({ applicationId: 1 }, { unique: true });
-db.certificates.createIndex({ certificateNumber: 1 }, { unique: true });
-
-// Audit Logs
-db.auditlogs.createIndex({ timestamp: -1 });
-db.auditlogs.createIndex({ userId: 1 });
-db.auditlogs.createIndex({ action: 1 });
+# (Optional) Seed initial system data
+node prisma-seed.js
 ```
 
 ---
