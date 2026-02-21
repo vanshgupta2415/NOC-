@@ -13,7 +13,7 @@ const StudentCertificate = () => {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery<ApiResponse<ApplicationStatus>>({
     queryKey: ['applicationStatus'],
     queryFn: () => studentAPI.getApplicationStatus(),
     retry: 1,
@@ -103,7 +103,7 @@ const StudentCertificate = () => {
                   <h3 className="text-lg font-bold text-foreground mb-1">No Dues Certificate</h3>
                   <p className="text-xs text-muted-foreground mb-1">Madhav Institute of Technology & Science, Gwalior</p>
                   <p className="text-[10px] text-muted-foreground uppercase font-mono bg-muted py-1 px-3 rounded-full inline-block">
-                    ID: NDC-{application?._id.substring(application._id.length - 8).toUpperCase()}
+                    ID: NDC-{application?.id.substring(application.id.length - 8).toUpperCase()}
                   </p>
 
                   <div className="mt-6 pt-4 border-t border-border/50 space-y-2">

@@ -343,10 +343,10 @@ const AdminDashboard = () => {
               <CardContent>
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {[
-                    { role: 'Student', desc: 'Can apply and track status', count: stats.users?.byRole?.find((r: any) => r._id === 'Student')?.count || 0 },
-                    { role: 'Faculty', desc: 'First stage approval', count: stats.users?.byRole?.find((r: any) => r._id === 'Faculty')?.count || 0 },
-                    { role: 'HOD', desc: 'Final department approval', count: stats.users?.byRole?.find((r: any) => r._id === 'HOD')?.count || 0 },
-                    { role: 'SuperAdmin', desc: 'System level access', count: stats.users?.byRole?.find((r: any) => r._id === 'SuperAdmin')?.count || 0 },
+                    { role: 'Student', desc: 'Can apply and track status', count: stats.users?.byRole?.find((r: any) => r.role === 'Student')?.count || 0 },
+                    { role: 'Faculty', desc: 'First stage approval', count: stats.users?.byRole?.find((r: any) => r.role === 'Faculty')?.count || 0 },
+                    { role: 'HOD', desc: 'Final department approval', count: stats.users?.byRole?.find((r: any) => r.role === 'HOD')?.count || 0 },
+                    { role: 'SuperAdmin', desc: 'System level access', count: stats.users?.byRole?.find((r: any) => r.role === 'SuperAdmin')?.count || 0 },
                   ].map((role) => (
                     <Card key={role.role} className="bg-muted/20 border-border/50">
                       <CardContent className="p-4">
@@ -606,7 +606,7 @@ const AdminDashboard = () => {
                     <div className="space-y-1">
                       {auditLogs.length > 0 ? auditLogs.map((log: any, i: number) => (
                         <motion.div
-                          key={log._id}
+                          key={log.id}
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={{ delay: 0.2 + i * 0.05 }}
@@ -617,7 +617,7 @@ const AdminDashboard = () => {
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-foreground truncate">{log.action}</p>
                             <p className="text-[10px] text-muted-foreground font-medium">
-                              {log.userId?.name || 'System'} · {new Date(log.createdAt).toLocaleTimeString()}
+                              {log.userName || 'System'} · {new Date(log.timestamp).toLocaleTimeString()}
                             </p>
                           </div>
                         </motion.div>

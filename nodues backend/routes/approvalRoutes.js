@@ -35,7 +35,7 @@ router.get(
 router.get(
     '/history',
     authorize(...approverRoles),
-    approvalController.getHandledApprovals
+    approvalController.getHistory
 );
 
 /**

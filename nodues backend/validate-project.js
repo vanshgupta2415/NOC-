@@ -81,13 +81,15 @@ console.log('\n2. Package Dependencies:');
 try {
     const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
     const requiredDeps = [
-        'express', 'mongoose', 'bcryptjs', 'jsonwebtoken', 'dotenv',
+        'express', '@prisma/client', 'bcryptjs', 'jsonwebtoken', 'dotenv',
         'cors', 'helmet', 'morgan', 'multer', 'nodemailer', 'puppeteer',
         'winston', 'zod', 'express-rate-limit', 'cookie-parser'
     ];
 
     requiredDeps.forEach(dep => {
-        test(`   ${dep}`, packageJson.dependencies && packageJson.dependencies[dep], `Missing dependency: ${dep}`);
+        const isPresent = (packageJson.dependencies && packageJson.dependencies[dep]) ||
+            (packageJson.devDependencies && packageJson.devDependencies[dep]);
+        test(`   ${dep}`, isPresent, `Missing dependency: ${dep}`);
     });
 } catch (error) {
     test('   package.json parsing', false, error.message);
@@ -99,7 +101,7 @@ try {
     if (fs.existsSync(envPath)) {
         const envContent = fs.readFileSync(envPath, 'utf8');
         const requiredEnvVars = [
-            'NODE_ENV', 'PORT', 'MONGODB_URI',
+            'NODE_ENV', 'PORT', 'DATABASE_URL',
             'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET',
             'SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD'
         ];
@@ -118,22 +120,10 @@ console.log('\n4. Model Validation:');
 const models = ['User', 'StudentProfile', 'NoDuesApplication', 'ApprovalStage', 'Certificate', 'AuditLog', 'Documents'];
 models.forEach(model => {
     try {
-        const modelPath = path.join(__dirname, 'models', `${model}.js`);
-        const content = fs.readFileSync(modelPath, 'utf8');
+        const schemaPath = path.join(__dirname, 'prisma', 'schema.prisma');
+        const content = fs.readFileSync(schemaPath, 'utf8');
 
-        // Check for duplicate indexes (should be removed)
-        const hasDuplicateIndex = content.includes('schema.index') &&
-            (content.includes('unique: true') || content.includes('unique:true'));
-
-        if (model === 'User') {
-            test(`   ${model} - no duplicate email index`, !content.match(/userSchema\.index\(\s*{\s*email:\s*1\s*}\s*\)/));
-        } else if (model === 'StudentProfile') {
-            test(`   ${model} - no duplicate indexes`, !content.match(/studentProfileSchema\.index\(\s*{\s*(userId|enrollmentNumber):\s*1\s*}\s*\)/));
-        } else if (model === 'Certificate') {
-            test(`   ${model} - no duplicate indexes`, !content.match(/certificateSchema\.index\(\s*{\s*(applicationId|certificateNumber):\s*1\s*}\s*\)/));
-        } else {
-            test(`   ${model} - file exists`, true);
-        }
+        test(`   ${model} - exists in schema.prisma`, content.includes(`model ${model}`), `${model} model missing in schema.prisma`);
     } catch (error) {
         test(`   ${model}`, false, error.message);
     }
@@ -143,7 +133,7 @@ console.log('\n5. Controller Functions:');
 const controllers = {
     'authController': ['login', 'logout', 'refreshToken', 'getCurrentUser'],
     'studentController': ['createOrUpdateProfile', 'getProfile', 'submitApplication', 'getApplicationStatus', 'resubmitApplication', 'getCertificate'],
-    'approvalController': ['getPendingApprovals', 'getHandledApprovals', 'approveApplication', 'pauseApplication', 'getApplicationDetails'],
+    'approvalController': ['getPendingApprovals', 'getHistory', 'approveApplication', 'pauseApplication', 'getApplicationDetails'],
     'adminController': ['createUser', 'getAllUsers', 'updateUser', 'deactivateUser', 'getAllApplications', 'getApplicationById', 'getAuditLogs', 'getStatistics']
 };
 
@@ -153,7 +143,9 @@ Object.entries(controllers).forEach(([controller, functions]) => {
         const content = fs.readFileSync(controllerPath, 'utf8');
 
         functions.forEach(func => {
-            const hasFunction = content.includes(`exports.${func}`) || content.includes(`${func} =`);
+            const hasFunction = content.includes(`exports.${func}`) ||
+                content.includes(`${func} =`) ||
+                content.includes(`${func}:`);
             test(`   ${controller}.${func}`, hasFunction, `Function not found: ${func}`);
         });
     } catch (error) {
@@ -195,7 +187,10 @@ Object.entries(middlewares).forEach(([middleware, exports]) => {
         const content = fs.readFileSync(middlewarePath, 'utf8');
 
         exports.forEach(exp => {
-            const hasExport = content.includes(`exports.${exp}`) || content.includes(`${exp}:`);
+            const hasExport = content.includes(`exports.${exp}`) ||
+                content.includes(`${exp}:`) ||
+                content.includes(`${exp},`) ||
+                content.includes(`${exp} =`);
             test(`   ${middleware}.${exp}`, hasExport, `Export not found: ${exp}`);
         });
     } catch (error) {

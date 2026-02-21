@@ -111,6 +111,7 @@ const App = () => (
               }
             />
             {/* Admin Sub-routes */}
+            <Route path="/admin/registry" element={<ProtectedRoute allowedRoles={['SuperAdmin']}><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['SuperAdmin']}><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/roles" element={<ProtectedRoute allowedRoles={['SuperAdmin']}><AdminDashboard /></ProtectedRoute>} />
             <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['SuperAdmin']}><AdminDashboard /></ProtectedRoute>} />

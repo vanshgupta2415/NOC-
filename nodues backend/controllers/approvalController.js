@@ -118,7 +118,7 @@ exports.getPendingApprovals = async (req, res, next) => {
  * @route   GET /api/approvals/history
  * @access  Private (Approver roles)
  */
-exports.getHandledApprovals = async (req, res, next) => {
+exports.getHistory = async (req, res, next) => {
     try {
         const approverId = req.user.id;
         const pageNum = parseInt(req.query.page) || 1;
