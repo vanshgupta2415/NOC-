@@ -1,11 +1,11 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const { prisma } = require('../config/database');
 const logger = require('../config/logger');
 
 // Verify JWT access token
 const verifyToken = async (req, res, next) => {
     try {
-        // Get token from header or cookie
+        // ... (existing token logic)
         let token = req.headers.authorization?.split(' ')[1] || req.cookies?.accessToken;
 
         if (!token) {
@@ -19,7 +19,9 @@ const verifyToken = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
 
         // Get user from database
-        const user = await User.findById(decoded.userId).select('-passwordHash -refreshToken');
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId }
+        });
 
         if (!user) {
             return res.status(401).json({

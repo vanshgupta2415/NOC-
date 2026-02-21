@@ -1,60 +1,60 @@
-const AuditLog = require('../models/AuditLog');
+const { prisma } = require('../config/database');
 const logger = require('../config/logger');
 
 // Create audit log entry
+// Supports two call signatures:
+// 1. createAuditLog({ userId, userName, userEmail, userRole, action, ... })
+// 2. createAuditLog(action, userId, targetId, details)   ← positional (from controllers)
 const createAuditLog = async (arg1, arg2, arg3, arg4) => {
     try {
         let logData;
         if (typeof arg1 === 'object' && !arg2) {
-            // Standard object argument
             logData = arg1;
         } else {
-            // Positional arguments: action, userId, targetId, details
+            // Positional call: fetch user to get name/email/role
+            const userId = arg2;
+            let userName = 'System', userEmail = 'system@mitsgwl.ac.in', userRole = 'system';
+            if (userId) {
+                try {
+                    const user = await prisma.user.findUnique({
+                        where: { id: userId },
+                        select: { name: true, email: true, role: true }
+                    });
+                    if (user) { userName = user.name; userEmail = user.email; userRole = user.role; }
+                } catch (_) { /* silently skip user lookup failures */ }
+            }
             logData = {
-                action: arg1?.toLowerCase(),
-                userId: arg2,
+                action: arg1,
+                userId,
+                userName,
+                userEmail,
+                userRole,
                 targetId: arg3,
                 details: arg4
             };
         }
 
-        // Validate action against enum (basic check)
-        const validActions = [
-            'user_created', 'user_updated', 'user_deleted',
-            'application_submitted', 'application_approved', 'application_paused',
-            'application_rejected', 'application_resubmitted',
-            'certificate_generated', 'certificate_emailed', 'certificate_regenerated',
-            'login', 'logout', 'password_changed', 'workflow_configured', 'role_assigned',
-            'PROFILE_CREATED', 'PROFILE_UPDATED', 'APPLICATION_SUBMITTED', 'APPLICATION_RESUBMITTED'
-        ];
-
-        let actionToLog = 'system_activity';
-        if (logData.action) {
-            if (validActions.includes(logData.action)) {
-                actionToLog = logData.action;
-            } else if (validActions.includes(logData.action.toLowerCase())) {
-                actionToLog = logData.action.toLowerCase();
+        const auditLog = await prisma.auditLog.create({
+            data: {
+                userId: logData.userId,
+                userName: logData.userName || 'System',
+                userEmail: logData.userEmail || 'system@mitsgwl.ac.in',
+                userRole: String(logData.userRole || 'system'),
+                action: String(logData.action || 'system_activity'),
+                targetType: logData.targetType || null,
+                targetId: logData.targetId ? String(logData.targetId) : null,
+                details: logData.details || null,
+                ipAddress: logData.ipAddress || null,
+                userAgent: logData.userAgent || null,
+                timestamp: new Date()
             }
-        }
-
-        const auditLog = await AuditLog.create({
-            userId: logData.userId,
-            userName: logData.userName || 'System',
-            userEmail: logData.userEmail || 'system@mitsgwl.ac.in',
-            userRole: logData.userRole || 'system',
-            action: actionToLog,
-            targetType: logData.targetType,
-            targetId: logData.targetId,
-            details: logData.details,
-            ipAddress: logData.ipAddress,
-            userAgent: logData.userAgent,
-            timestamp: new Date()
         });
 
-        logger.info(`Audit log created: ${logData.action} by ${logData.userEmail || 'System'}`);
+        logger.info(`Audit: ${logData.action} by ${logData.userEmail || 'System'}`);
         return auditLog;
     } catch (error) {
         logger.error(`Failed to create audit log: ${error.message}`);
+        // Don't throw — audit failures must never break the main flow
     }
 };
 
@@ -69,7 +69,7 @@ const auditMiddleware = (action, targetType = null) => {
             // Only log successful operations (2xx status codes)
             if (res.statusCode >= 200 && res.statusCode < 300 && req.user) {
                 createAuditLog({
-                    userId: req.user._id,
+                    userId: req.user.id,
                     userName: req.user.name,
                     userEmail: req.user.email,
                     userRole: req.user.role,

@@ -1,9 +1,4 @@
-const NoDuesApplication = require('../models/NoDuesApplication');
-const ApprovalStage = require('../models/ApprovalStage');
-const StudentProfile = require('../models/StudentProfile');
-const Documents = require('../models/Documents');
-const Certificate = require('../models/Certificate');
-const User = require('../models/User');
+const { prisma } = require('../config/database');
 const { getWorkflowStages, getNextStage } = require('../config/workflow');
 const { logAudit } = require('../middleware/audit');
 const { sendEmail } = require('../config/email');
@@ -18,89 +13,69 @@ const { generateCertificate } = require('../utils/certificateGenerator');
 exports.getPendingApprovals = async (req, res, next) => {
     try {
         const { role, department } = req.user;
-        const { page = 1, limit = 10 } = req.query;
+        const pageNum = parseInt(req.query.page) || 1;
+        const limitNum = parseInt(req.query.limit) || 10;
 
-        // Roles that should filter by department
+        // Find approval stages pending for this role
+        // For parallel approvals: All approvers see applications immediately
+        // Accounts Officer only sees applications after all others have approved
+        const pendingStages = await prisma.approvalStage.findMany({
+            where: {
+                role,
+                status: 'Pending',
+                application: {
+                    status: 'UnderReview',
+                    ...(role === 'AccountsOfficer' ? { currentStage: 'AccountsOfficer' } : {})
+                }
+            },
+            include: {
+                application: {
+                    include: {
+                        student: { select: { name: true, email: true } },
+                        studentProfile: true,
+                        documents: true
+                    }
+                }
+            },
+            skip: (pageNum - 1) * limitNum,
+            take: limitNum,
+            orderBy: { createdAt: 'asc' }
+        });
+
+        // Filter and map the data
         const departmentSpecificRoles = ['Faculty', 'ClassCoordinator', 'HOD'];
         const shouldFilterByDepartment = departmentSpecificRoles.includes(role);
 
-        // For parallel approvals: All approvers (except Accounts) see applications immediately
-        // Accounts Officer only sees applications after all others have approved
-        let applicationQuery = { status: 'UnderReview' };
+        const pendingApplications = pendingStages
+            .map(stage => {
+                const app = stage.application;
+                const profile = app.studentProfile;
+                const student = app.student;
 
-        if (role === 'AccountsOfficer') {
-            // Accounts Officer only sees applications where ALL other stages are approved
-            applicationQuery.currentStage = 'AccountsOfficer';
-        }
-
-        // Find approval stages pending for this role
-        const pendingStages = await ApprovalStage.find({
-            role,
-            status: 'Pending'
-        })
-            .populate({
-                path: 'applicationId',
-                match: applicationQuery
-            })
-            .skip((page - 1) * limit)
-            .limit(parseInt(limit))
-            .sort({ createdAt: 1 });
-
-        // Filter out null applications and get application IDs
-        const validStages = pendingStages.filter(stage => stage.applicationId !== null);
-        const applicationIds = validStages.map(stage => stage.applicationId._id);
-
-        // Get student details for each application
-        const applications = await NoDuesApplication.find({ _id: { $in: applicationIds } })
-            .populate({
-                path: 'studentId',
-                select: 'name email',
-                populate: {
-                    path: 'studentId',
-                    model: 'StudentProfile',
-                    select: 'enrollmentNumber branch passOutYear'
+                // Filter by department if applicable
+                if (shouldFilterByDepartment && department && profile.branch !== department) {
+                    return null;
                 }
-            });
-
-        // Combine data
-        const pendingApplications = await Promise.all(
-            validStages.map(async (stage) => {
-                const application = applications.find(
-                    app => app._id.toString() === stage.applicationId._id.toString()
-                );
-
-                const student = await User.findById(application.studentId);
-                const studentProfile = await StudentProfile.findOne({ userId: application.studentId });
-
-                // Filter by department for Faculty, ClassCoordinator, and HOD
-                if (shouldFilterByDepartment && department) {
-                    // Check if student's branch matches approver's department
-                    if (studentProfile.branch !== department) {
-                        return null; // Skip this application
-                    }
-                }
-
-                const documents = await Documents.findOne({ applicationId: application._id });
 
                 return {
-                    applicationId: application._id,
+                    applicationId: app.id,
                     student: {
                         name: student.name,
                         email: student.email,
-                        enrollmentNumber: studentProfile.enrollmentNumber,
-                        branch: studentProfile.branch,
-                        passOutYear: studentProfile.passOutYear
+                        enrollmentNumber: profile.enrollmentNumber,
+                        branch: profile.branch,
+                        passOutYear: profile.passOutYear
                     },
-                    applicationStatus: application.status,
-                    currentStage: application.currentStage,
-                    hostelInvolved: application.hostelInvolved,
-                    cautionMoneyRefund: application.cautionMoneyRefund,
-                    submittedAt: application.createdAt,
+                    applicationStatus: app.status,
+                    currentStage: app.currentStage,
+                    hostelInvolved: app.hostelInvolved,
+                    cautionMoneyRefund: app.cautionMoneyRefund,
+                    submittedAt: app.createdAt,
                     documents: {
-                        feeReceipts: documents.feeReceiptsPDF,
-                        marksheets: documents.marksheetsPDF,
-                        bankProof: documents.bankProofImage,
-                        idProof: documents.idProofImage
+                        feeReceipts: { filename: app.documents.feeReceiptsPDF_filename, path: app.documents.feeReceiptsPDF_path },
+                        marksheets: { filename: app.documents.marksheetsPDF_filename, path: app.documents.marksheetsPDF_path },
+                        bankProof: { filename: app.documents.bankProofImage_filename, path: app.documents.bankProofImage_path },
+                        idProof: { filename: app.documents.idProofImage_filename, path: app.documents.idProofImage_path }
                     },
                     stageInfo: {
                         officeName: stage.officeName,
@@ -108,22 +83,28 @@ exports.getPendingApprovals = async (req, res, next) => {
                     }
                 };
             })
-        );
+            .filter(app => app !== null);
 
-        // Filter out null values (applications not in approver's department)
-        const filteredApplications = pendingApplications.filter(app => app !== null);
-
-        const total = filteredApplications.length;
+        const totalItemsCount = await prisma.approvalStage.count({
+            where: {
+                role,
+                status: 'Pending',
+                application: {
+                    status: 'UnderReview',
+                    ...(role === 'AccountsOfficer' ? { currentStage: 'AccountsOfficer' } : {})
+                }
+            }
+        });
 
         res.status(200).json({
             status: 'success',
             data: {
-                applications: filteredApplications,
+                applications: pendingApplications,
                 pagination: {
-                    currentPage: parseInt(page),
-                    totalPages: Math.ceil(total / limit),
-                    totalItems: total,
-                    itemsPerPage: parseInt(limit)
+                    currentPage: pageNum,
+                    totalPages: Math.ceil(totalItemsCount / limitNum),
+                    totalItems: totalItemsCount,
+                    itemsPerPage: limitNum
                 }
             }
         });
@@ -139,47 +120,43 @@ exports.getPendingApprovals = async (req, res, next) => {
  */
 exports.getHandledApprovals = async (req, res, next) => {
     try {
-        const { role } = req.user;
         const approverId = req.user.id;
-        const { page = 1, limit = 10 } = req.query;
+        const pageNum = parseInt(req.query.page) || 1;
+        const limitNum = parseInt(req.query.limit) || 10;
 
-        // Find stages handled by this user OR role (if user changed but role is same, usually we want user-specific history)
-        const handledStages = await ApprovalStage.find({
-            approvedBy: approverId,
-            status: { $in: ['Approved', 'Paused'] }
-        })
-            .populate('applicationId')
-            .skip((page - 1) * limit)
-            .limit(parseInt(limit))
-            .sort({ approvedAt: -1 });
+        const handledStages = await prisma.approvalStage.findMany({
+            where: {
+                approvedById: approverId,
+                status: { in: ['Approved', 'Paused'] }
+            },
+            include: {
+                application: {
+                    include: {
+                        student: { select: { name: true, email: true } },
+                        studentProfile: { select: { enrollmentNumber: true } }
+                    }
+                }
+            },
+            skip: (pageNum - 1) * limitNum,
+            take: limitNum,
+            orderBy: { approvedAt: 'desc' }
+        });
 
-        // Filter out null applications
-        const validStages = handledStages.filter(stage => stage.applicationId !== null);
+        const history = handledStages.map(stage => ({
+            applicationId: stage.applicationId,
+            student: {
+                name: stage.application.student?.name || 'Unknown',
+                email: stage.application.student?.email || 'N/A',
+                enrollmentNumber: stage.application.studentProfile?.enrollmentNumber || 'N/A'
+            },
+            status: stage.status,
+            handledAt: stage.approvedAt,
+            currentApplicationStatus: stage.application.status,
+            remarks: stage.remarks
+        }));
 
-        const history = await Promise.all(
-            validStages.map(async (stage) => {
-                const application = stage.applicationId;
-                const student = await User.findById(application.studentId);
-                const studentProfile = await StudentProfile.findOne({ userId: application.studentId });
-
-                return {
-                    applicationId: application._id,
-                    student: {
-                        name: student?.name || 'Unknown',
-                        email: student?.email || 'N/A',
-                        enrollmentNumber: studentProfile?.enrollmentNumber || 'N/A'
-                    },
-                    status: stage.status,
-                    handledAt: stage.approvedAt,
-                    currentApplicationStatus: application.status,
-                    remarks: stage.remarks
-                };
-            })
-        );
-
-        const total = await ApprovalStage.countDocuments({
-            approvedBy: approverId,
-            status: { $in: ['Approved', 'Paused'] }
+        const total = await prisma.approvalStage.count({
+            where: { approvedById: approverId, status: { in: ['Approved', 'Paused'] } }
         });
 
         res.status(200).json({
@@ -187,10 +164,10 @@ exports.getHandledApprovals = async (req, res, next) => {
             data: {
                 history,
                 pagination: {
-                    currentPage: parseInt(page),
-                    totalPages: Math.ceil(total / limit),
+                    currentPage: pageNum,
+                    totalPages: Math.ceil(total / limitNum),
                     totalItems: total,
-                    itemsPerPage: parseInt(limit)
+                    itemsPerPage: limitNum
                 }
             }
         });
@@ -211,7 +188,11 @@ exports.approveApplication = async (req, res, next) => {
         const approverId = req.user.id;
         const { libraryDues, tcNumber, tcDate } = req.body;
 
-        const application = await NoDuesApplication.findById(applicationId);
+        const application = await prisma.noDuesApplication.findUnique({
+            where: { id: applicationId },
+            include: { approvalStages: true }
+        });
+
         if (!application) {
             return res.status(404).json({
                 status: 'error',
@@ -226,15 +207,8 @@ exports.approveApplication = async (req, res, next) => {
             });
         }
 
-        // For parallel approvals: Remove the currentStage check
-        // All approvers can approve at any time (except Accounts Officer)
-
         // Find the current pending stage for this role
-        const currentStage = await ApprovalStage.findOne({
-            applicationId,
-            role,
-            status: 'Pending'
-        });
+        const currentStage = application.approvalStages.find(s => s.role === role && s.status === 'Pending');
 
         if (!currentStage) {
             return res.status(400).json({
@@ -243,20 +217,38 @@ exports.approveApplication = async (req, res, next) => {
             });
         }
 
-        // Update authority specific fields in application
-        if (role === 'LibraryAdmin' && libraryDues) {
-            application.libraryDues = libraryDues;
-        } else if (role === 'GeneralOffice') {
-            if (tcNumber) application.tcNumber = tcNumber;
-            if (tcDate) application.tcDate = tcDate;
-        }
+        // Update authority specific fields and approval stage in a transaction
+        await prisma.$transaction(async (tx) => {
+            // Update application fields if necessary
+            if (role === 'LibraryAdmin' && libraryDues) {
+                await tx.noDuesApplication.update({
+                    where: { id: applicationId },
+                    data: { libraryDues }
+                });
+            } else if (role === 'GeneralOffice') {
+                const updateData = {};
+                if (tcNumber) updateData.tcNumber = tcNumber;
+                if (tcDate) updateData.tcDate = new Date(tcDate);
+                if (Object.keys(updateData).length > 0) {
+                    await tx.noDuesApplication.update({
+                        where: { id: applicationId },
+                        data: updateData
+                    });
+                }
+            }
 
-        // Update approval stage
-        currentStage.status = 'Approved';
-        currentStage.approvedBy = approverId;
-        currentStage.approvedByName = req.user.name;
-        currentStage.approvedAt = new Date();
-        await currentStage.save();
+            // Update approval stage
+            await tx.approvalStage.update({
+                where: { id: currentStage.id },
+                data: {
+                    status: 'Approved',
+                    approvedById: approverId,
+                    approvedByName: req.user.name,
+                    approvedByEmail: req.user.email,
+                    approvedAt: new Date()
+                }
+            });
+        });
 
         // Log audit
         await logAudit(
@@ -266,36 +258,44 @@ exports.approveApplication = async (req, res, next) => {
             { stage: currentStage.officeName, role }
         );
 
-        // Check if ALL required stages (except Accounts) are approved
-        const allStages = await ApprovalStage.find({ applicationId });
+        // Fetch updated stages to check if all are approved
+        const allStages = await prisma.approvalStage.findMany({ where: { applicationId } });
         const requiredStages = allStages.filter(stage => stage.role !== 'AccountsOfficer');
         const allApproved = requiredStages.every(stage => stage.status === 'Approved');
 
         if (allApproved && role !== 'AccountsOfficer') {
             // All stages approved except Accounts - move to Accounts Officer
-            application.currentStage = 'AccountsOfficer';
-            await application.save();
+            await prisma.noDuesApplication.update({
+                where: { id: applicationId },
+                data: { currentStage: 'AccountsOfficer' }
+            });
 
             res.status(200).json({
                 status: 'success',
                 message: 'Application approved. All approvals complete - moved to Accounts Officer for final approval.',
                 data: {
-                    applicationId: application._id,
+                    applicationId: application.id,
                     status: application.status,
-                    currentStage: application.currentStage,
+                    currentStage: 'AccountsOfficer',
                     isFinalApproval: false,
                     allStagesApproved: true
                 }
             });
         } else if (role === 'AccountsOfficer') {
-            // Accounts Officer approval - Final stage, generate certificate
-            application.status = 'Approved';
-            application.currentStage = 'completed';
-            await application.save();
+            // Accounts Officer approval - Final stage
+            const updatedApp = await prisma.noDuesApplication.update({
+                where: { id: applicationId },
+                data: { status: 'Approved', currentStage: 'completed' }
+            });
 
             // Generate and send certificate
             try {
-                await generateAndSendCertificate(application, approverId);
+                // Ensure we have full application data for certificate
+                const fullApp = await prisma.noDuesApplication.findUnique({
+                    where: { id: applicationId },
+                    include: { student: true, studentProfile: true, approvalStages: true }
+                });
+                await generateAndSendCertificate(fullApp, approverId);
             } catch (certError) {
                 console.error("Certificate generation failed but approval succeeded", certError);
             }
@@ -304,7 +304,7 @@ exports.approveApplication = async (req, res, next) => {
                 status: 'success',
                 message: 'Application approved. Certificate generated and sent to student.',
                 data: {
-                    applicationId: application._id,
+                    applicationId: application.id,
                     status: 'CertificateIssued',
                     isFinalApproval: true
                 }
@@ -315,7 +315,7 @@ exports.approveApplication = async (req, res, next) => {
                 status: 'success',
                 message: 'Application approved successfully. Waiting for other approvers.',
                 data: {
-                    applicationId: application._id,
+                    applicationId: application.id,
                     status: application.status,
                     currentStage: application.currentStage,
                     isFinalApproval: false,
@@ -348,27 +348,17 @@ exports.pauseApplication = async (req, res, next) => {
             });
         }
 
-        const application = await NoDuesApplication.findById(applicationId);
+        const application = await prisma.noDuesApplication.findUnique({ where: { id: applicationId } });
         if (!application) {
-            return res.status(404).json({
-                status: 'error',
-                message: 'Application not found'
-            });
+            return res.status(404).json({ status: 'error', message: 'Application not found' });
         }
 
         if (application.status !== 'UnderReview') {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Application is not under review'
-            });
+            return res.status(400).json({ status: 'error', message: 'Application is not under review' });
         }
 
-        // For parallel approvals: Any approver can pause at any time
-        // Find the current pending stage for this role
-        const currentStage = await ApprovalStage.findOne({
-            applicationId,
-            role,
-            status: 'Pending'
+        const currentStage = await prisma.approvalStage.findFirst({
+            where: { applicationId, role, status: 'Pending' }
         });
 
         if (!currentStage) {
@@ -378,44 +368,53 @@ exports.pauseApplication = async (req, res, next) => {
             });
         }
 
-        // Update approval stage
-        currentStage.status = 'Paused';
-        currentStage.remarks = remarks;
-        currentStage.approvedBy = approverId;
-        currentStage.approvedAt = new Date();
-        await currentStage.save();
+        const approver = await prisma.user.findUnique({ where: { id: approverId } });
 
-        // Update application status
-        application.status = 'Paused';
-        await application.save();
+        await prisma.$transaction([
+            prisma.approvalStage.update({
+                where: { id: currentStage.id },
+                data: {
+                    status: 'Paused',
+                    remarks,
+                    approvedById: approverId,
+                    approvedByName: approver?.name,
+                    approvedByEmail: approver?.email,
+                    approvedAt: new Date()
+                }
+            }),
+            prisma.noDuesApplication.update({
+                where: { id: applicationId },
+                data: { status: 'Paused', pausedAt: new Date() }
+            })
+        ]);
 
-        // Log audit
-        await logAudit(
-            'APPLICATION_PAUSED',
-            approverId,
-            applicationId,
-            { stage: currentStage.officeName, role, remarks }
-        );
+        await logAudit('APPLICATION_PAUSED', approverId, applicationId, { stage: currentStage.officeName, role, remarks });
 
-        // Send email to student
-        const student = await User.findById(application.studentId);
-        const studentProfile = await StudentProfile.findOne({ userId: application.studentId });
+        // Send email to student (best-effort — don't fail the pause if email fails)
+        try {
+            const student = await prisma.user.findUnique({ where: { id: application.studentId } });
+            const studentProfile = await prisma.studentProfile.findUnique({ where: { userId: application.studentId } });
 
-        const emailContent = applicationPausedTemplate(
-            student.name,
-            studentProfile.enrollmentNumber,
-            currentStage.officeName,
-            remarks
-        );
+            if (student && studentProfile) {
+                const emailContent = applicationPausedTemplate({
+                    studentName: student.name,
+                    enrollmentNumber: studentProfile.enrollmentNumber,
+                    officeName: currentStage.officeName,
+                    remarks
+                });
 
-        await sendEmail(student.email, emailContent.subject, emailContent.html);
+                await sendEmail({ to: student.email, subject: emailContent.subject, html: emailContent.html });
+            }
+        } catch (emailError) {
+            console.error('Failed to send pause notification email:', emailError.message);
+        }
 
         res.status(200).json({
             status: 'success',
             message: 'Application paused. Student has been notified.',
             data: {
-                applicationId: application._id,
-                status: application.status,
+                applicationId,
+                status: 'Paused',
                 pausedAt: currentStage.officeName,
                 remarks
             }
@@ -434,32 +433,30 @@ exports.getApplicationDetails = async (req, res, next) => {
     try {
         const { applicationId } = req.params;
 
-        const application = await NoDuesApplication.findById(applicationId);
-        if (!application) {
-            return res.status(404).json({
-                status: 'error',
-                message: 'Application not found'
-            });
-        }
+        const application = await prisma.noDuesApplication.findUnique({
+            where: { id: applicationId },
+            include: {
+                student: { select: { name: true, email: true } },
+                studentProfile: true,
+                documents: true,
+                approvalStages: {
+                    orderBy: { stageOrder: 'asc' },
+                    include: { approvedBy: { select: { name: true, email: true, role: true } } }
+                }
+            }
+        });
 
-        const student = await User.findById(application.studentId);
-        const studentProfile = await StudentProfile.findOne({ userId: application.studentId });
-        const documents = await Documents.findOne({ applicationId });
-        const approvalStages = await ApprovalStage.find({ applicationId })
-            .sort({ stageOrder: 1 })
-            .populate('approvedBy', 'name email role');
+        if (!application) {
+            return res.status(404).json({ status: 'error', message: 'Application not found' });
+        }
 
         res.status(200).json({
             status: 'success',
             data: {
                 application,
-                student: {
-                    name: student.name,
-                    email: student.email,
-                    ...studentProfile.toObject()
-                },
-                documents,
-                approvalStages
+                student: application.student,
+                documents: application.documents,
+                approvalStages: application.approvalStages
             }
         });
     } catch (error) {
@@ -472,14 +469,10 @@ exports.getApplicationDetails = async (req, res, next) => {
  */
 async function generateAndSendCertificate(application, approverId) {
     try {
-        // Get student details
-        const student = await User.findById(application.studentId);
-        const studentProfile = await StudentProfile.findOne({ userId: application.studentId });
-
-        // Get all approval stages
-        const approvalStages = await ApprovalStage.find({ applicationId: application._id })
-            .sort({ stageOrder: 1 })
-            .populate('approvedBy', 'name');
+        // Application data is already included if called from approveApplication
+        const student = application.student;
+        const studentProfile = application.studentProfile;
+        const approvalStages = application.approvalStages;
 
         // Generate certificate
         const certificateData = {
@@ -500,7 +493,7 @@ async function generateAndSendCertificate(application, approverId) {
                 officeName: stage.officeName,
                 role: stage.role,
                 status: stage.status,
-                approvedByName: stage.approvedByName || (stage.approvedBy ? stage.approvedBy.name : 'N/A'),
+                approvedByName: stage.approvedByName,
                 approvedAt: stage.approvedAt
             })),
             issueDate: new Date()
@@ -509,39 +502,45 @@ async function generateAndSendCertificate(application, approverId) {
         const { certificateNumber, pdfPath } = await generateCertificate(certificateData);
 
         // Save certificate record
-        const certificate = await Certificate.create({
-            applicationId: application._id,
-            certificateNumber,
-            studentId: student._id,
-            studentName: student.name,
-            enrollmentNumber: studentProfile.enrollmentNumber,
-            branch: studentProfile.branch,
-            passOutYear: studentProfile.passOutYear,
-            pdfPath,
-            emailSent: false
+        const certificate = await prisma.certificate.create({
+            data: {
+                applicationId: application.id,
+                certificateNumber,
+                studentId: student.id,
+                studentName: student.name,
+                enrollmentNumber: studentProfile.enrollmentNumber,
+                branch: studentProfile.branch,
+                passOutYear: studentProfile.passOutYear,
+                pdfPath,
+                emailSent: false
+            }
         });
 
         // Update application status
-        application.status = 'CertificateIssued';
-        await application.save();
+        await prisma.noDuesApplication.update({
+            where: { id: application.id },
+            data: { status: 'CertificateIssued' }
+        });
 
         // Send certificate via email
-        const emailContent = certificateIssuedTemplate(
-            student.name,
-            studentProfile.enrollmentNumber,
+        const emailContent = certificateIssuedTemplate({
+            studentName: student.name,
+            enrollmentNumber: studentProfile.enrollmentNumber,
             certificateNumber
-        );
+        });
 
-        await sendEmail(
-            student.email,
-            emailContent.subject,
-            emailContent.html,
-            [{ filename: `NoDues_Certificate_${certificateNumber}.pdf`, path: pdfPath }]
-        );
+        await sendEmail({
+            to: student.email,
+            subject: emailContent.subject,
+            html: emailContent.html,
+            attachments: [{ filename: `NoDues_Certificate_${certificateNumber}.pdf`, path: pdfPath }]
+        });
 
         // Update certificate email status
-        certificate.emailSent = true;
-        await certificate.save();
+        await prisma.certificate.update({
+            where: { id: certificate.id },
+            data: { emailSent: true, emailSentAt: new Date() }
+        });
 
         // Log audit
         await logAudit(

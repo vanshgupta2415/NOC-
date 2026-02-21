@@ -85,4 +85,16 @@ router.get('/statistics', adminController.getStatistics);
  */
 router.post('/regenerate-certificate/:applicationId', adminController.regenerateCertificate);
 
+/**
+ * @route   GET /api/admin/student-registry
+ * @desc    Get all students in registry
+ */
+router.get('/student-registry', adminController.getStudentRegistry);
+
+/**
+ * @route   POST /api/admin/student-registry/bulk
+ * @desc    Bulk upload students to registry
+ */
+router.post('/student-registry/bulk', adminController.bulkUploadStudents);
+
 module.exports = router;

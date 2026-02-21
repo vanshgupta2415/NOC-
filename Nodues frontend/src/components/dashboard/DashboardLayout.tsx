@@ -38,6 +38,7 @@ const authorityNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { icon: Home, label: "Dashboard", href: "/admin" },
+  { icon: ClipboardList, label: "Student Registry", href: "/admin/registry" },
   { icon: Users, label: "User Management", href: "/admin/users" },
   { icon: Shield, label: "Roles & Access", href: "/admin/roles" },
   { icon: BarChart3, label: "Analytics", href: "/admin/analytics" },

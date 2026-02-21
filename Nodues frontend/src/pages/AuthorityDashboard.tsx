@@ -14,7 +14,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { motion } from "framer-motion";
 import { FadeUp, StaggerContainer, StaggerItem } from "@/components/animations/AnimatedComponents";
-import { Search, Eye, CheckCircle2, PauseCircle, Clock, Users, AlertTriangle, Loader2, History } from "lucide-react";
+import { Search, Eye, CheckCircle2, PauseCircle, Clock, Users, AlertTriangle, Loader2, History, FileText, Download, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -47,6 +47,12 @@ const AuthorityDashboard = () => {
     queryFn: () => approvalAPI.getHistory(1, 50),
     enabled: activeView === 'approved',
     retry: 1,
+  });
+
+  const { data: detailsData, isLoading: detailsLoading } = useQuery({
+    queryKey: ['applicationDetails', selectedAppId],
+    queryFn: () => selectedAppId ? approvalAPI.getApplicationDetails(selectedAppId) : null,
+    enabled: !!selectedAppId,
   });
 
   // Mutations
@@ -311,6 +317,111 @@ const AuthorityDashboard = () => {
                                         Confirm Pause
                                       </Button>
                                     </DialogFooter>
+                                  </DialogContent>
+                                </Dialog>
+
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 px-3 text-xs gap-1 rounded-lg"
+                                      onClick={() => setSelectedAppId(appId)}
+                                    >
+                                      <Eye className="w-3.5 h-3.5" /> Details
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                                    <DialogHeader>
+                                      <DialogTitle>Application Details</DialogTitle>
+                                      <DialogDescription>
+                                        Review student information and documents
+                                      </DialogDescription>
+                                    </DialogHeader>
+                                    {detailsLoading ? (
+                                      <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+                                    ) : detailsData?.data ? (
+                                      <div className="space-y-6">
+                                        <div className="grid grid-cols-2 gap-4 bg-muted/30 p-4 rounded-xl border border-border">
+                                          <div>
+                                            <p className="text-[10px] text-muted-foreground uppercase font-bold">Full Name</p>
+                                            <p className="text-sm font-semibold">{detailsData.data.student.name}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-[10px] text-muted-foreground uppercase font-bold">Enrollment</p>
+                                            <p className="text-sm font-semibold">{detailsData.data.application.studentProfile.enrollmentNumber}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-[10px] text-muted-foreground uppercase font-bold">Branch</p>
+                                            <p className="text-sm font-semibold">{detailsData.data.application.studentProfile.branch}</p>
+                                          </div>
+                                          <div>
+                                            <p className="text-[10px] text-muted-foreground uppercase font-bold">Pass Out Year</p>
+                                            <p className="text-sm font-semibold">{detailsData.data.application.studentProfile.passOutYear}</p>
+                                          </div>
+                                        </div>
+
+                                        {/* Application Information */}
+                                        <div className="space-y-3">
+                                          <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Application Declarations</h4>
+                                          <div className="grid grid-cols-2 gap-3">
+                                            {[
+                                              { label: "Hostel Involved", value: detailsData.data.application.hostelInvolved },
+                                              { label: "Exit Survey", value: detailsData.data.application.exitSurveyCompleted },
+                                              { label: "Caution Money Refund", value: detailsData.data.application.cautionMoneyRefund },
+                                              { label: "Fee Dues Cleared", value: detailsData.data.application.feeDuesCleared },
+                                              { label: "Project Report", value: detailsData.data.application.projectReportSubmitted },
+                                              { label: "Library Dues", value: detailsData.data.application.libraryDues || "Nil" }
+                                            ].map((item) => (
+                                              <div key={item.label} className="flex items-center justify-between p-2 rounded-lg border border-border bg-muted/20">
+                                                <span className="text-xs font-medium">{item.label}</span>
+                                                {typeof item.value === 'boolean' ? (
+                                                  <Badge variant="secondary" className={`text-[10px] h-4 ${item.value ? "bg-success/10 text-success border-success/20" : ""}`}>
+                                                    {item.value ? "Yes" : "No"}
+                                                  </Badge>
+                                                ) : (
+                                                  <span className="text-[10px] font-bold text-accent">{item.value}</span>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                          <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Uploaded Documents</h4>
+                                          <div className="grid gap-2">
+                                            {[
+                                              { label: "Fee Receipts", key: "feeReceiptsPDF" },
+                                              { label: "Mark Sheets", key: "marksheetsPDF" },
+                                              { label: "Bank Proof", key: "bankProofImage" },
+                                              { label: "ID Proof", key: "idProofImage" },
+                                            ].map((doc) => {
+                                              const docData = detailsData.data.documents;
+                                              const filename = docData[`${doc.key}_filename`];
+                                              const path = docData[`${doc.key}_path`];
+                                              if (!filename) return null;
+                                              const fileUrl = `http://localhost:5000/uploads/${filename}`;
+                                              return (
+                                                <div key={doc.key} className="flex items-center justify-between p-3 rounded-xl border border-border bg-card hover:bg-muted/10 transition-colors">
+                                                  <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-lg bg-primary/5 flex items-center justify-center">
+                                                      <FileText className="w-4 h-4 text-primary" />
+                                                    </div>
+                                                    <div>
+                                                      <p className="text-xs font-semibold">{doc.label}</p>
+                                                      <p className="text-[10px] text-muted-foreground">{filename.split('-')[0]}{filename.substring(filename.lastIndexOf('.'))}</p>
+                                                    </div>
+                                                  </div>
+                                                  <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-[10px] font-bold text-accent hover:underline">
+                                                    <ExternalLink className="w-3 h-3" /> View Source
+                                                  </a>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ) : <div className="p-4 text-center text-muted-foreground">Failed to load details</div>}
                                   </DialogContent>
                                 </Dialog>
                               </div>

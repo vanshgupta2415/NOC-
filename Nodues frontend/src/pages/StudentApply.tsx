@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { studentAPI } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { DEPARTMENTS } from "@/lib/constants";
 
 const steps = [
   { id: 1, title: "Personal Details", icon: User },
@@ -28,19 +29,20 @@ const steps = [
 const StudentApply = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [existingApp, setExistingApp] = useState<any>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const navigate = useNavigate();
 
   const [form, setForm] = useState({
     fullName: user?.name || "",
-    fatherName: user?.studentProfile?.fatherName || "",
+    fatherName: "",
     enrollment: user?.studentProfile?.enrollmentNumber || "",
     email: user?.email || "",
     phone: "",
-    address: user?.studentProfile?.address || "",
-    department: user?.studentProfile?.branch || "Computer Science",
-    batch: user?.studentProfile?.passOutYear ? String(user.studentProfile.passOutYear) : "2025",
+    address: "",
+    department: "",
+    batch: "",
     semester: "",
     cgpa: "",
     hostelInvolved: false,
@@ -61,6 +63,18 @@ const StudentApply = () => {
     idProofImage: null,
   });
 
+  // Sync form with user data when it becomes available
+  useEffect(() => {
+    if (user) {
+      setForm(prev => ({
+        ...prev,
+        fullName: user.name || prev.fullName,
+        email: user.email || prev.email,
+        enrollment: user.studentProfile?.enrollmentNumber || prev.enrollment,
+      }));
+    }
+  }, [user]);
+
   const updateField = (key: string, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -76,6 +90,39 @@ const StudentApply = () => {
     }
     setFiles((prev) => ({ ...prev, [key]: file }));
   };
+
+  // Pre-fill form if application exists
+  useEffect(() => {
+    const fetchExisting = async () => {
+      try {
+        const res = await studentAPI.getApplicationStatus();
+        if (res.data?.application) {
+          const app = res.data.application;
+          setExistingApp(app);
+          const profile = app.studentProfile;
+          setForm(prev => ({
+            ...prev,
+            fullName: user?.name || "",
+            enrollment: profile.enrollmentNumber || "",
+            fatherName: profile.fatherName || "",
+            department: profile.branch || "",
+            batch: String(profile.passOutYear || ""),
+            address: profile.address || "",
+            phone: profile.phoneNumber || "",
+            hostelInvolved: app.hostelInvolved,
+            cautionMoneyRefund: app.cautionMoneyRefund,
+            exitSurveyCompleted: app.exitSurveyCompleted,
+            feeDuesCleared: app.feeDuesCleared,
+            projectReportSubmitted: app.projectReportSubmitted,
+            declaration: app.declarationAccepted,
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to fetch existing application", err);
+      }
+    };
+    fetchExisting();
+  }, [user]);
 
   const handleSubmit = async () => {
     if (!form.declaration) return;
@@ -116,21 +163,30 @@ const StudentApply = () => {
       if (files.bankProofImage) formData.append("bankProofImage", files.bankProofImage);
       if (files.idProofImage) formData.append("idProofImage", files.idProofImage);
 
-      const response = await studentAPI.submitApplication(formData);
-
-      if (response.success) {
-        toast({
-          title: "Application Submitted! ✅",
-          description: "Your no dues application has been sent for review.",
-        });
+      // Submit or Resubmit application
+      try {
+        if (existingApp && existingApp.status === 'Paused') {
+          formData.append("applicationId", existingApp.id);
+          await studentAPI.resubmitApplication(formData);
+          toast({
+            title: "Application Resubmitted! 🔁",
+            description: "Your updated application has been sent for re-review.",
+          });
+        } else {
+          await studentAPI.submitApplication(formData);
+          toast({
+            title: "Application Submitted! ✅",
+            description: "Your no dues application has been sent for review.",
+          });
+        }
         navigate("/student/status");
+      } catch (error: any) {
+        toast({
+          title: "Submission Failed",
+          description: error.response?.data?.message || "Something went wrong",
+          variant: "destructive",
+        });
       }
-    } catch (error: any) {
-      toast({
-        title: "Submission Failed",
-        description: error.response?.data?.message || "Something went wrong",
-        variant: "destructive",
-      });
     } finally {
       setIsSubmitting(false);
     }
@@ -224,15 +280,35 @@ const StudentApply = () => {
                     <div className="grid sm:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>Enrollment Number</Label>
-                        <Input placeholder="Enter enrollment number" value={form.enrollment} onChange={(e) => updateField("enrollment", e.target.value)} />
+                        <Input
+                          placeholder="Enter enrollment number"
+                          value={form.enrollment}
+                          onChange={(e) => updateField("enrollment", e.target.value)}
+                          readOnly={!!user?.studentProfile?.enrollmentNumber}
+                          className={user?.studentProfile?.enrollmentNumber ? "bg-muted/50" : ""}
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label>Department</Label>
-                        <Input value={form.department} readOnly className="bg-muted/50" />
+                        <Select value={form.department} onValueChange={(v) => updateField("department", v)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select Department" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DEPARTMENTS.map((dept) => (
+                              <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div className="space-y-2">
                         <Label>Pass Out Year</Label>
-                        <Input value={form.batch} readOnly className="bg-muted/50" />
+                        <Input
+                          type="number"
+                          placeholder="e.g. 2025"
+                          value={form.batch}
+                          onChange={(e) => updateField("batch", e.target.value)}
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label>Current Semester</Label>

@@ -1,7 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-const StudentProfile = require('../models/StudentProfile');
+const { prisma } = require('../config/database');
 const { createAuditLog } = require('../middleware/audit');
 const logger = require('../config/logger');
 
@@ -29,7 +28,7 @@ exports.register = async (req, res) => {
         const { name, email, password, role, department } = req.body;
 
         // Check if user already exists
-        const existingUser = await User.findOne({ email });
+        const existingUser = await prisma.user.findUnique({ where: { email } });
         if (existingUser) {
             return res.status(400).json({
                 success: false,
@@ -42,31 +41,35 @@ exports.register = async (req, res) => {
         const passwordHash = await bcrypt.hash(password, salt);
 
         // Create user
-        const user = await User.create({
-            name,
-            email,
-            passwordHash,
-            role: role,
-            department: department || null
+        const user = await prisma.user.create({
+            data: {
+                name,
+                email,
+                passwordHash,
+                role: role,
+                department: department || null
+            }
         });
 
         // Generate tokens
-        const accessToken = generateAccessToken(user._id);
-        const refreshToken = generateRefreshToken(user._id);
+        const accessToken = generateAccessToken(user.id);
+        const refreshToken = generateRefreshToken(user.id);
 
         // Save refresh token
-        user.refreshToken = refreshToken;
-        await user.save();
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { refreshToken }
+        });
 
         // Create audit log
         await createAuditLog({
-            userId: user._id,
+            userId: user.id,
             userName: user.name,
             userEmail: user.email,
             userRole: user.role,
             action: 'user_created',
             targetType: 'User',
-            targetId: user._id,
+            targetId: user.id,
             ipAddress: req.ip,
             userAgent: req.get('user-agent')
         });
@@ -78,7 +81,7 @@ exports.register = async (req, res) => {
             message: 'User registered successfully',
             data: {
                 user: {
-                    id: user._id,
+                    id: user.id,
                     name: user.name,
                     email: user.email,
                     role: user.role,
@@ -104,7 +107,7 @@ exports.login = async (req, res) => {
         const { email, password } = req.body;
 
         // Find user with password
-        const user = await User.findOne({ email }).select('+passwordHash');
+        const user = await prisma.user.findUnique({ where: { email } });
         if (!user) {
             return res.status(401).json({
                 success: false,
@@ -130,22 +133,24 @@ exports.login = async (req, res) => {
         }
 
         // Generate tokens
-        const accessToken = generateAccessToken(user._id);
-        const refreshToken = generateRefreshToken(user._id);
+        const accessToken = generateAccessToken(user.id);
+        const refreshToken = generateRefreshToken(user.id);
 
         // Save refresh token
-        user.refreshToken = refreshToken;
-        await user.save();
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { refreshToken }
+        });
 
         // Get student profile if user is student
         let studentProfile = null;
         if (user.role === 'Student') {
-            studentProfile = await StudentProfile.findOne({ userId: user._id });
+            studentProfile = await prisma.studentProfile.findUnique({ where: { userId: user.id } });
         }
 
         // Create audit log
         await createAuditLog({
-            userId: user._id,
+            userId: user.id,
             userName: user.name,
             userEmail: user.email,
             userRole: user.role,
@@ -161,7 +166,7 @@ exports.login = async (req, res) => {
             message: 'Login successful',
             data: {
                 user: {
-                    id: user._id,
+                    id: user.id,
                     name: user.name,
                     email: user.email,
                     role: user.role,
@@ -198,7 +203,7 @@ exports.refreshToken = async (req, res) => {
         const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
 
         // Find user
-        const user = await User.findById(decoded.userId).select('+refreshToken');
+        const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
         if (!user || user.refreshToken !== refreshToken) {
             return res.status(401).json({
                 success: false,
@@ -207,7 +212,7 @@ exports.refreshToken = async (req, res) => {
         }
 
         // Generate new access token
-        const newAccessToken = generateAccessToken(user._id);
+        const newAccessToken = generateAccessToken(user.id);
 
         res.json({
             success: true,
@@ -236,22 +241,24 @@ exports.refreshToken = async (req, res) => {
 // Logout user
 exports.logout = async (req, res) => {
     try {
-        const user = await User.findById(req.user._id);
-        user.refreshToken = null;
-        await user.save();
+        const userId = req.user.id;
+        await prisma.user.update({
+            where: { id: userId },
+            data: { refreshToken: null }
+        });
 
         // Create audit log
         await createAuditLog({
-            userId: user._id,
-            userName: user.name,
-            userEmail: user.email,
-            userRole: user.role,
+            userId: req.user.id,
+            userName: req.user.name,
+            userEmail: req.user.email,
+            userRole: req.user.role,
             action: 'logout',
             ipAddress: req.ip,
             userAgent: req.get('user-agent')
         });
 
-        logger.info(`User logged out: ${user.email}`);
+        logger.info(`User logged out: ${req.user.email}`);
 
         res.json({
             success: true,
@@ -274,14 +281,14 @@ exports.getCurrentUser = async (req, res) => {
 
         let studentProfile = null;
         if (user.role === 'Student') {
-            studentProfile = await StudentProfile.findOne({ userId: user._id });
+            studentProfile = await prisma.studentProfile.findUnique({ where: { userId: user.id } });
         }
 
         res.json({
             success: true,
             data: {
                 user: {
-                    id: user._id,
+                    id: user.id,
                     name: user.name,
                     email: user.email,
                     role: user.role,
